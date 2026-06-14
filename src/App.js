@@ -382,22 +382,6 @@ function WhatsAppBot({onOrderCreated, settings, onClose}) {
               </div>
             </div>
           )}
-          {pendingOrder&&(
-            <div style={{display:"flex",justifyContent:"flex-end"}}>
-              <div style={{background:"#fff",borderRadius:14,padding:14,maxWidth:"90%",border:"2px solid #25D366"}}>
-                <div style={{color:"#075E54",fontWeight:800,fontSize:13,marginBottom:10}}>📋 تأكيد الشحنة</div>
-                {[["👤",pendingOrder.customer_name||"—"],["📞",pendingOrder.clientPhone||"—"],["📦",pendingOrder.sender],["🎁",pendingOrder.package_type],["📝",pendingOrder.details],["🏠",pendingOrder.destination],["💰",`${pendingOrder.price} د.ل`]].map(([ic,val])=>(
-                  <div key={ic} style={{fontSize:12,color:"#374151",marginBottom:5,display:"flex",gap:7}}>
-                    <span>{ic}</span><span>{val||"—"}</span>
-                  </div>
-                ))}
-                <div style={{display:"flex",gap:8,marginTop:12}}>
-                  <button onClick={confirmOrder} style={{flex:1,background:"#25D366",color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✅ تأكيد وإرسال</button>
-                  <button onClick={()=>setPendingOrder(null)} style={{flex:1,background:"#FFF1F2",color:"#F43F5E",border:"1px solid #FCA5A5",borderRadius:9,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕ إلغاء</button>
-                </div>
-              </div>
-            </div>
-          )}
           <div ref={bottomRef}/>
         </div>
 
