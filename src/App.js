@@ -136,36 +136,18 @@ const db = {
 // ══════════════════════════════════════════════
 //  🤖 AI BOT — عبر Vercel Serverless Function
 // ══════════════════════════════════════════════
-async function analyzeMessage(message, companyName) {
+async function sendMessage(message, phone, companyName) {
   try {
     const r = await fetch("/api/analyze", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({message, companyName}),
+      body: JSON.stringify({message, phone, companyName}),
     });
-    const data = await r.json();
-
-    // تحويل حقول Gemini للتنسيق المحلي
-    return {
-      understood:   data.understood !== false,
-      customer_name: data.customer_name || null,
-      clientPhone:  data.phone || null,
-      sender:       data.sender || null,
-      package_type: data.package_type || "طرود عامة",
-      details:      data.details || message,
-      destination:  data.destination || null,
-      price:        data.price || 0,
-      missing:      data.missing || [],
-      reply:        data.reply || "تم استلام طلبك ✅",
-      needs_review: data.needs_manual_review || false,
-      raw_message:  data.raw_message || null,
-    };
+    return await r.json();
   } catch {
     return {
-      understood: false,
-      needs_review: true,
-      raw_message: message,
-      reply: "تم استلام طلبك ✅ سيتواصل معك فريقنا قريباً.",
+      reply: "تم استلام رسالتك ✅ سيتواصل معك فريقنا قريباً.",
+      order_saved: false,
     };
   }
 }
@@ -308,80 +290,64 @@ function ShippingLabel({order, onClose}) {
 //  🤖 WHATSAPP BOT
 // ══════════════════════════════════════════════
 function WhatsAppBot({onOrderCreated, settings, onClose}) {
-  const [messages,setMessages]=useState([{
-    id:1, from:"bot", time:nowTime(),
-    text:`مرحباً بك في ${settings.companyName||"وصّل"} 👋\n\nأرسل تفاصيل شحنتك بشكل طبيعي.\n\nمثال:\n"أنا أحمد، عندي طرد ملابس من محل النور في طرابلس، يوصل للحي الشمالي مبنى 4، السعر 15 دينار"`
-  }]);
+  const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
-  const [pendingOrder,setPendingOrder]=useState(null);
+  const [sessionPhone]=useState("web-"+Date.now());
   const bottomRef=useRef();
 
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages,loading]);
-
   const addMsg=(from,text)=>setMessages(m=>[...m,{id:Date.now()+Math.random(),from,time:nowTime(),text}]);
+
+  useEffect(()=>{
+    addMsg("bot",`👋 مرحباً بك في ${settings.companyName||"وصّل"}!
+
+🚀 خدماتنا:
+📦 توصيل البضائع والطرود
+🍔 توصيل من المطاعم
+🚚 شحن بين المدن
+
+⏰ أوقات العمل: 9 صباحاً - 11 ليلاً
+📍 طرابلس وضواحيها
+
+كيف نقدر نساعدك يا غالي؟
+1️⃣ تتبع طلبية
+2️⃣ توصيل بضاعة
+3️⃣ طلب من مطعم
+4️⃣ التحدث مع الدعم`);
+  },[]);
 
   const send=async()=>{
     const msg=input.trim();
     if(!msg||loading)return;
     setInput(""); addMsg("user",msg); setLoading(true);
     try {
-      const r=await analyzeMessage(msg, settings.companyName);
-
-      if(r.needs_review){
-        // طلب يحتاج مراجعة يدوية
+      const r=await sendMessage(msg, sessionPhone, settings.companyName||"وصّل");
+      addMsg("bot", r.reply||"تم استلام رسالتك ✅");
+      if(r.order_saved){
         const o={
-          id:genId(), customer_name:r.customer_name||"غير محدد",
-          clientPhone:r.clientPhone||null, sender:"يحتاج مراجعة",
-          package_type:"أخرى", details:msg,
-          destination:"يحتاج مراجعة", price:0,
-          status:"يحتاج مراجعة", date:todayDate(), time:nowTime(),
-          driver:null, source:"bot", needs_review:true, raw_message:msg,
+          id:"W-"+Date.now().toString().slice(-6),
+          customer_name:r.order_data?.customer_name||null,
+          clientPhone:r.order_data?.phone||null,
+          sender:r.order_data?.sender||"غير محدد",
+          package_type:r.order_data?.package_type||"طرود عامة",
+          details:r.order_data?.details||msg,
+          destination:r.order_data?.destination||"غير محدد",
+          price:r.order_data?.price||0,
+          status:"جديد", date:todayDate(), time:nowTime(),
+          driver:null, source:"bot", needs_review:false,
         };
         await onOrderCreated(o);
-        addMsg("bot", r.reply);
-      } else if(!r.understood){
-        addMsg("bot", r.reply||"عذراً لم أفهم. أرسل اسمك ونوع الشحنة والعنوان.");
-      } else {
-        const essential=["sender","destination"];
-        const missing=essential.filter(k=>!r[k]||r[k]==="null");
-        if(missing.length>0){
-          addMsg("bot", r.reply);
-        } else {
-          addMsg("bot", r.reply);
-          setPendingOrder({
-            customer_name: r.customer_name||null,
-            clientPhone:   r.clientPhone||null,
-            sender:        r.sender,
-            package_type:  r.package_type||"طرود عامة",
-            details:       r.details||msg,
-            destination:   r.destination,
-            price:         r.price||0,
-          });
-        }
       }
-    } catch {
-      addMsg("bot","حدث خطأ في الاتصال. حاول مجدداً 🔄");
-    }
+      if(r.escalate&&settings.waGroupNumber){
+        setTimeout(()=>window.open(buildWA(settings.waGroupNumber,
+          `🚨 *وصّل* — تحويل للإدارة!\n👤 الزبون: ${r.order_data?.customer_name||"غير محدد"}\n📞 الرقم: ${r.order_data?.phone||"غير محدد"}\n📝 السبب: يحتاج تدخل بشري`),"_blank"),500);
+      }
+    } catch{addMsg("bot","حدث خطأ. حاول مجدداً 🔄");}
     setLoading(false);
   };
 
-  const confirmOrder=async()=>{
-    if(!pendingOrder)return;
-    const o={
-      ...pendingOrder,
-      id:genId(), status:"جديد",
-      date:todayDate(), time:nowTime(),
-      driver:null, source:"bot",
-      price:Number(pendingOrder.price)||0,
-      needs_review:false,
-    };
-    await onOrderCreated(o);
-    setPendingOrder(null);
-    addMsg("bot",`✅ تم تسجيل شحنتك!\nرقم الطلب: *${o.id}*\n\nسيتواصل معك فريقنا قريباً 🚀`);
-  };
-
-  const quickReplies=["عندي شحنة ملابس","أريد توصيل طرد","شحنة من خارج المدينة","لحوم من الجزار"];
+  const quickReplies=["عندي توصيلة","تتبع طلبيتي","طلب من مطعم","أريد التحدث مع الدعم"];
 
   return(
     <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",background:"#00000088",padding:12}}>
