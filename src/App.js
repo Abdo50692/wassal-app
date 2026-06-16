@@ -36,7 +36,6 @@ const todayDate = () => new Date().toISOString().split("T")[0];
 const fmtDate   = d => d ? new Date(d).toLocaleDateString("ar-LY",{day:"2-digit",month:"short"}) : "-";
 const buildWA   = (phone,msg) => `https://wa.me/${phone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`;
 
-// رسالة الجروب واتساب
 const groupMsgWA = (o, companyName) =>
 `🚀 *${companyName}* — طلب جديد!
 ━━━━━━━━━━━━━━━
@@ -144,8 +143,6 @@ function exportReport(orders) {
   const driverStats = {};
   done.forEach(o=>{ if(o.driver){ driverStats[o.driver]=driverStats[o.driver]||{n:0,rev:0}; driverStats[o.driver].n++; driverStats[o.driver].rev+=Number(o.price); }});
   const review = orders.filter(o=>o.needs_review||o.status==="يحتاج مراجعة");
-  const byDay = {};
-  orders.forEach(o=>{ byDay[o.date]=(byDay[o.date]||0)+1; });
 
   const html=`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8">
 <style>body{font-family:Arial;direction:rtl;margin:32px;color:#1e293b;font-size:13px}
@@ -168,7 +165,6 @@ tr:nth-child(even) td{background:#F8FAFF}
   <div class="card"><div class="cv">${orders.length}</div><div class="cl">إجمالي الطلبات</div></div>
   <div class="card"><div class="cv">${done.length}</div><div class="cl">مكتملة</div></div>
   <div class="card"><div class="cv">${total} د.ل</div><div class="cl">الإيرادات</div></div>
-  <div class="card"><div class="cv">${done.length?(total/done.length).toFixed(1):0} د.ل</div><div class="cl">متوسط الطلب</div></div>
   <div class="card"><div class="cv">${review.length}</div><div class="cl">تحتاج مراجعة</div></div>
 </div>
 <h2>📋 الطلبات المكتملة</h2>
@@ -271,9 +267,9 @@ function ShippingLabel({order, onClose}) {
 }
 
 // ══════════════════════════════════════════════
-//  🤖 WHATSAPP BOT
+//  🤖 WHATSAPP BOT — واجهة الزبون المستقلة
 // ══════════════════════════════════════════════
-function WhatsAppBot({onOrderCreated, settings, onClose}) {
+function WhatsAppBot({onOrderCreated, settings, onClose, standalone=false}) {
   const [messages,setMessages]=useState([]);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
@@ -284,22 +280,16 @@ function WhatsAppBot({onOrderCreated, settings, onClose}) {
   const addMsg=(from,text)=>setMessages(m=>[...m,{id:Date.now()+Math.random(),from,time:nowTime(),text}]);
 
   useEffect(()=>{
-    addMsg("bot",`👋 مرحباً بك في ${settings.companyName||"وصّل"}!
+    addMsg("bot",`👋 أهلاً وسهلاً في ${settings?.companyName||"وصّل"}! 🚀
 
-🚀 خدماتنا:
-📦 توصيل البضائع والطرود
-🍔 توصيل من المطاعم
-🚚 شحن بين المدن
-⚡ سريع، آمن، وموثوق مية مية
+خدماتنا متاحة من 9 صباحاً لـ 11 ليلاً 📍 طرابلس وضواحيها
 
-⏰ 9 صباحاً - 11 ليلاً
-📍 طرابلس وضواحيها
-
-كيف نقدر نساعدك يا غالي؟
-1️⃣ تتبع طلبية
-2️⃣ توصيل بضاعة أو طرد
-3️⃣ طلب من مطعم
-4️⃣ التحدث مع الدعم`);
+شن نقدر نسوولك اليوم؟ 😊
+1️⃣ توصيل بضاعة أو طرد 📦
+2️⃣ طلب من مطعم 🍔
+3️⃣ شحن بين المدن 🚚
+4️⃣ تتبع طلبية
+5️⃣ التحدث مع الدعم`);
   },[]);
 
   const send=async()=>{
@@ -307,7 +297,7 @@ function WhatsAppBot({onOrderCreated, settings, onClose}) {
     if(!msg||loading)return;
     setInput(""); addMsg("user",msg); setLoading(true);
     try {
-      const r=await sendMessage(msg, sessionPhone, settings.companyName||"وصّل");
+      const r=await sendMessage(msg, sessionPhone, settings?.companyName||"وصّل");
       addMsg("bot", r.reply||"تم استلام رسالتك ✅");
 
       if(r.order_saved && r.order_data){
@@ -323,37 +313,49 @@ function WhatsAppBot({onOrderCreated, settings, onClose}) {
           status: "جديد", date: todayDate(), time: nowTime(),
           driver: null, source: "bot", needs_review: false,
         };
-        await onOrderCreated(o);
+        if(onOrderCreated) await onOrderCreated(o);
 
-        // واتساب للجروب
-        if(settings.waGroupNumber){
-          setTimeout(()=>window.open(buildWA(settings.waGroupNumber, groupMsgWA(o, settings.companyName||"وصّل")),"_blank"),800);
+        if(settings?.waGroupNumber){
+          setTimeout(()=>window.open(buildWA(settings.waGroupNumber, groupMsgWA(o, settings?.companyName||"وصّل")),"_blank"),800);
         }
       }
 
-      if(r.escalate && settings.waGroupNumber){
-        setTimeout(()=>window.open(buildWA(settings.waGroupNumber,
-          `🚨 *وصّل* — تحويل للإدارة!\n👤 يحتاج تدخل بشري`),"_blank"),500);
+      if(r.escalate && settings?.waGroupNumber){
+        setTimeout(()=>window.open(buildWA(settings.waGroupNumber,`🚨 *وصّل* — تحويل للإدارة!\n👤 يحتاج تدخل بشري`),"_blank"),500);
       }
     } catch{ addMsg("bot","حدث خطأ. حاول مجدداً 🔄"); }
     setLoading(false);
   };
 
-  const quickReplies=["عندي توصيلة","تتبع طلبيتي","طلب من مطعم","أريد التحدث مع الدعم"];
+  const quickReplies=["عندي توصيلة 📦","طلب من مطعم 🍔","تتبع طلبيتي 🔍","تحدث مع الدعم 💬"];
+
+  const containerStyle = standalone
+    ? {minHeight:"100vh",display:"flex",flexDirection:"column",direction:"rtl",fontFamily:"'Segoe UI',Tahoma,sans-serif",background:"#ECE5DD"}
+    : {position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",background:"#00000088",padding:12};
+
+  const boxStyle = standalone
+    ? {width:"100%",flex:1,display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto"}
+    : {width:"100%",maxWidth:420,height:"92vh",maxHeight:720,display:"flex",flexDirection:"column",borderRadius:20,overflow:"hidden",direction:"rtl",fontFamily:"'Segoe UI',Tahoma,sans-serif",boxShadow:"0 24px 64px #0007"};
 
   return(
-    <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",background:"#00000088",padding:12}}>
-      <div style={{width:"100%",maxWidth:420,height:"92vh",maxHeight:720,display:"flex",flexDirection:"column",borderRadius:20,overflow:"hidden",direction:"rtl",fontFamily:"'Segoe UI',Tahoma,sans-serif",boxShadow:"0 24px 64px #0007"}}>
+    <div style={containerStyle}>
+      <div style={boxStyle}>
+        {/* HEADER */}
         <div style={{background:"#075E54",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-          <button onClick={onClose} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.8)",fontSize:20,cursor:"pointer"}}>←</button>
+          {!standalone&&(
+            <button onClick={onClose} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.8)",fontSize:20,cursor:"pointer"}}>←</button>
+          )}
           <div style={{width:42,height:42,borderRadius:"50%",background:"#25D366",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🚀</div>
           <div style={{flex:1}}>
-            <div style={{color:"#fff",fontWeight:700,fontSize:15}}>{settings.companyName||"وصّل"}</div>
+            <div style={{color:"#fff",fontWeight:700,fontSize:15}}>{settings?.companyName||"وصّل"}</div>
             <div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>🤖 بوت ذكي — متصل ✅</div>
           </div>
-          <button onClick={onClose} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.7)",fontSize:20,cursor:"pointer"}}>✕</button>
+          {!standalone&&(
+            <button onClick={onClose} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.7)",fontSize:20,cursor:"pointer"}}>✕</button>
+          )}
         </div>
 
+        {/* MESSAGES */}
         <div style={{flex:1,overflowY:"auto",background:"#ECE5DD",padding:"12px 10px",display:"flex",flexDirection:"column",gap:6}}>
           {messages.map(m=>(
             <div key={m.id} style={{display:"flex",justifyContent:m.from==="user"?"flex-start":"flex-end"}}>
@@ -375,19 +377,23 @@ function WhatsAppBot({onOrderCreated, settings, onClose}) {
           <div ref={bottomRef}/>
         </div>
 
-        {!loading&&(
+        {/* QUICK REPLIES */}
+        {!loading&&messages.length<=2&&(
           <div style={{background:"#ECE5DD",padding:"0 10px 8px",display:"flex",gap:6,overflowX:"auto",flexShrink:0}}>
             {quickReplies.map(q=>(
-              <button key={q} onClick={()=>setInput(q)} style={{background:"#fff",border:"1px solid #25D36655",borderRadius:20,padding:"5px 12px",fontSize:12,color:"#075E54",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",fontWeight:600,flexShrink:0}}>
+              <button key={q} onClick={()=>{setInput(q);setTimeout(()=>document.getElementById("bot-input")?.focus(),50);}}
+                style={{background:"#fff",border:"1px solid #25D36655",borderRadius:20,padding:"5px 12px",fontSize:12,color:"#075E54",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",fontWeight:600,flexShrink:0}}>
                 {q}
               </button>
             ))}
           </div>
         )}
 
+        {/* INPUT */}
         <div style={{background:"#F0F2F5",padding:"8px 10px",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
           <div style={{flex:1,background:"#fff",borderRadius:24,padding:"10px 16px",display:"flex",alignItems:"center"}}>
-            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
+            <input id="bot-input" value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
               placeholder="اكتب رسالتك..." disabled={loading}
               style={{flex:1,border:"none",outline:"none",fontSize:14,fontFamily:"inherit",background:"transparent",direction:"rtl",color:"#1a1a1a"}}/>
           </div>
@@ -407,13 +413,12 @@ function WhatsAppBot({onOrderCreated, settings, onClose}) {
 // ══════════════════════════════════════════════
 function OrderCard({order, onUpdate, onPrint, settings}) {
   const [open,setOpen]=useState(false);
-  const s=STATUS_CONFIG[order.status]||{};
   const isReview=order.needs_review||order.status==="يحتاج مراجعة";
   const isUrgent=order.status==="عاجل";
 
   return(
     <div style={{background:"#1E293B",borderRadius:16,marginBottom:10,overflow:"hidden",border:`1.5px solid ${isUrgent?"#DC2626":isReview?"#F97316":open?"#6366F1":"#334155"}`,boxShadow:isUrgent?"0 0 20px #DC262633":"none",transition:"all .2s"}}>
-      {isUrgent&&<div style={{background:"linear-gradient(90deg,#DC2626,#EF4444)",height:3,animation:"pulse 1s infinite"}}/>}
+      {isUrgent&&<div style={{background:"linear-gradient(90deg,#DC2626,#EF4444)",height:3}}/>}
       <div onClick={()=>setOpen(!open)} style={{padding:"13px 15px",cursor:"pointer",display:"flex",alignItems:"center",gap:11}}>
         <div style={{fontSize:22,width:42,height:42,background:"#0F172A",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
           {isReview?"⚠️":isUrgent?"🚨":TYPE_ICON[order.package_type]||"📦"}
@@ -422,7 +427,7 @@ function OrderCard({order, onUpdate, onPrint, settings}) {
           <div style={{fontWeight:700,fontSize:14,color:"#E2E8F0",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             {order.customer_name||order.sender}
             <span style={{color:"#475569",fontSize:11}}>#{order.id}</span>
-            {isUrgent&&<span style={{background:"#FEF2F2",color:"#DC2626",fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700,animation:"pulse 1s infinite"}}>🚨 عاجل</span>}
+            {isUrgent&&<span style={{background:"#FEF2F2",color:"#DC2626",fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700}}>🚨 عاجل</span>}
             {isReview&&<span style={{background:"#FFF7ED",color:"#F97316",fontSize:10,padding:"2px 7px",borderRadius:10,fontWeight:700}}>⚠️ مراجعة</span>}
           </div>
           <div style={{color:"#64748B",fontSize:12,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -440,24 +445,18 @@ function OrderCard({order, onUpdate, onPrint, settings}) {
         <div style={{padding:"13px 15px 15px",borderTop:"1px solid #334155",background:"#0F172A"}}>
           {isReview&&order.raw_message&&(
             <div style={{background:"#431407",borderRadius:10,padding:"10px 14px",marginBottom:12,border:"1px solid #F97316"}}>
-              <div style={{color:"#FB923C",fontSize:12,fontWeight:700,marginBottom:5}}>⚠️ الرسالة الأصلية — تحتاج مراجعة:</div>
+              <div style={{color:"#FB923C",fontSize:12,fontWeight:700,marginBottom:5}}>⚠️ الرسالة الأصلية:</div>
               <div style={{color:"#FED7AA",fontSize:13}}>{order.raw_message}</div>
             </div>
           )}
-
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px",fontSize:13,marginBottom:14}}>
             {[["👤 الزبون",order.customer_name||"—"],["📞 الهاتف",order.clientPhone||"—"],["📦 المرسل",order.sender],["🏠 التوصيل",order.destination],["💰 التكلفة",`${order.price} د.ل`],["🧑‍💼 المندوب",order.driver||"—"]].map(([l,v])=>(
               <div key={l}><span style={{color:"#64748B",fontSize:11}}>{l}: </span><span style={{fontWeight:600,color:"#E2E8F0"}}>{v}</span></div>
             ))}
           </div>
-
           {order.details&&(
-            <div style={{background:"#1E293B",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#94A3B8"}}>
-              📝 {order.details}
-            </div>
+            <div style={{background:"#1E293B",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#94A3B8"}}>📝 {order.details}</div>
           )}
-
-          {/* السعر */}
           {order.status!=="مكتمل"&&order.status!=="ملغي"&&(
             <div style={{marginBottom:12,display:"flex",gap:8,alignItems:"center"}}>
               <input type="number" placeholder="السعر (د.ل)" defaultValue={order.price||""}
@@ -466,8 +465,6 @@ function OrderCard({order, onUpdate, onPrint, settings}) {
               <span style={{color:"#64748B",fontSize:12}}>د.ل</span>
             </div>
           )}
-
-          {/* تحديث الحالة */}
           {order.status!=="مكتمل"&&order.status!=="ملغي"&&(
             <div style={{marginBottom:12}}>
               <div style={{fontSize:11,color:"#64748B",marginBottom:8}}>تحديث الحالة:</div>
@@ -481,8 +478,6 @@ function OrderCard({order, onUpdate, onPrint, settings}) {
               </div>
             </div>
           )}
-
-          {/* تعيين مندوب */}
           {order.status!=="مكتمل"&&order.status!=="ملغي"&&(
             <div style={{marginBottom:12}}>
               <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>تعيين مندوب:</div>
@@ -496,8 +491,6 @@ function OrderCard({order, onUpdate, onPrint, settings}) {
               </div>
             </div>
           )}
-
-          {/* أزرار العمليات */}
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             <button onClick={()=>onPrint(order)}
               style={{background:"#6366F1",color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
@@ -517,11 +510,9 @@ function OrderCard({order, onUpdate, onPrint, settings}) {
               </a>
             )}
           </div>
-
-          {/* واتساب للجروب */}
           {settings?.waGroupNumber&&(
             <div style={{marginTop:10}}>
-              <a href={buildWA(settings.waGroupNumber, groupMsgWA(order, settings.companyName||"وصّل"))} target="_blank" rel="noreferrer"
+              <a href={buildWA(settings.waGroupNumber, groupMsgWA(order, settings?.companyName||"وصّل"))} target="_blank" rel="noreferrer"
                 style={{display:"inline-flex",alignItems:"center",gap:6,background:"#064E3B",color:"#4ADE80",border:"1px solid #065F46",borderRadius:9,padding:"7px 14px",fontSize:12,fontWeight:700,textDecoration:"none"}}>
                 📢 إرسال للجروب
               </a>
@@ -546,10 +537,9 @@ function AdminLogin({onLogin}) {
 
   return(
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A 0%,#1E1B4B 60%,#0F172A 100%)",display:"flex",alignItems:"center",justifyContent:"center",direction:"rtl",fontFamily:"'Segoe UI',Tahoma,sans-serif"}}>
-      <div style={{position:"absolute",top:"8%",right:"12%",width:200,height:200,background:"#6366F122",borderRadius:"50%",filter:"blur(70px)"}}/>
       <div style={{background:"rgba(255,255,255,0.05)",backdropFilter:"blur(20px)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:24,padding:"40px 34px",width:300,textAlign:"center"}}>
         <div style={{fontSize:48,marginBottom:8}}>🚀</div>
-        <h2 style={{color:"#fff",margin:"0 0 4px",fontSize:21,fontWeight:800}}>وصّل</h2>
+        <h2 style={{color:"#fff",margin:"0 0 4px",fontSize:21,fontWeight:800}}>وصّل — الإدارة</h2>
         <p style={{color:"#94A3B8",fontSize:13,margin:"0 0 26px"}}>أدخل رمز الدخول</p>
         <div style={{display:"flex",justifyContent:"center",gap:12,marginBottom:28}}>
           {[0,1,2,3].map(i=><div key={i} style={{width:14,height:14,borderRadius:"50%",background:i<pin.length?"#818CF8":"transparent",border:`2px solid ${i<pin.length?"#818CF8":"#475569"}`,transition:"all .2s"}}/>)}
@@ -567,7 +557,7 @@ function AdminLogin({onLogin}) {
           ))}
         </div>
         {tries>0&&<p style={{color:"#F87171",fontSize:13,marginTop:14}}>❌ رمز خاطئ ({tries} محاولة)</p>}
-        <p style={{color:"#374151",fontSize:12,marginTop:18}}>الرمز: 1234</p>
+        <p style={{color:"#374151",fontSize:12,marginTop:18}}>الرمز الافتراضي: 1234</p>
       </div>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
     </div>
@@ -589,7 +579,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
 
   const FILTERS=["الكل","عاجل","يحتاج مراجعة","جديد","قيد التوصيل","قريب من التسليم","متأخر","مكتمل","ملغي"];
 
-  // فلتر التاريخ
   const dateFilteredOrders = dateFilter==="اليوم"
     ? orders.filter(o=>o.date===todayDate())
     : dateFilter==="الأسبوع"
@@ -618,7 +607,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
     if(o.driver){driverStats[o.driver]=driverStats[o.driver]||{n:0,rev:0};driverStats[o.driver].n++;driverStats[o.driver].rev+=Number(o.price);}
   });
 
-  // رسم بياني بسيط
   const last7days = Array.from({length:7},(_,i)=>{
     const d=new Date(); d.setDate(d.getDate()-i);
     const dateStr=d.toISOString().split("T")[0];
@@ -678,8 +666,8 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
           <div style={{display:"flex",gap:7,alignItems:"center"}}>
             {stats.urgent>0&&(
               <button onClick={()=>setFilter("عاجل")}
-                style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #DC2626",borderRadius:9,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",animation:"pulse 1s infinite"}}>
-                🚨 {stats.urgent} عاجل
+                style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #DC2626",borderRadius:9,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                🚨 {stats.urgent}
               </button>
             )}
             {stats.review>0&&(
@@ -700,8 +688,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
       </div>
 
       <div style={{maxWidth:860,margin:"0 auto",padding:"16px 14px"}}>
-
-        {/* فلتر التاريخ */}
         <div style={{display:"flex",gap:6,marginBottom:14}}>
           {["الكل","اليوم","الأسبوع"].map(d=>(
             <button key={d} onClick={()=>setDateFilter(d)}
@@ -711,7 +697,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
           ))}
         </div>
 
-        {/* Stats */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
           {[["📋",stats.total,"إجمالي","#6366F1"],["✅",stats.done,"مكتمل","#10B981"],["🚴",stats.active,"جاري","#F59E0B"],["💰",`${stats.revenue}د.ل`,"إيرادات","#34D399"]].map(([ic,val,lb,c])=>(
             <div key={lb} style={{background:"#1E293B",borderRadius:13,padding:"12px 10px",border:"1px solid #334155",borderTop:`3px solid ${c}`,textAlign:"center"}}>
@@ -722,7 +707,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
           ))}
         </div>
 
-        {/* Tabs */}
         <div style={{display:"flex",gap:4,marginBottom:16,background:"#1E293B",borderRadius:12,padding:4,border:"1px solid #334155"}}>
           {[["orders","📦 الطلبات"],["stats","📊 إحصائيات"],["team","👥 الفريق"]].map(([v,l])=>(
             <button key={v} onClick={()=>setTab(v)}
@@ -732,7 +716,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
           ))}
         </div>
 
-        {/* ORDERS */}
         {tab==="orders"&&(
           <>
             <div style={{display:"flex",gap:10,marginBottom:12}}>
@@ -760,10 +743,8 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
           </>
         )}
 
-        {/* STATS */}
         {tab==="stats"&&(
           <>
-            {/* رسم بياني */}
             <div style={{background:"#1E293B",borderRadius:13,padding:18,border:"1px solid #334155",marginBottom:12}}>
               <h3 style={{margin:"0 0 16px",fontSize:14}}>📈 الطلبات آخر 7 أيام</h3>
               <div style={{display:"flex",gap:6,alignItems:"flex-end",height:80}}>
@@ -776,7 +757,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
                 ))}
               </div>
             </div>
-
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:12}}>
               {[["📋",stats.total,"إجمالي","#6366F1"],["🆕",stats.new,"جديدة","#818CF8"],["🚴",stats.active,"جارية","#F59E0B"],["✅",stats.done,"مكتملة","#10B981"],["🔴",stats.delayed,"متأخرة","#EF4444"],["⚠️",stats.review,"مراجعة","#F97316"]].map(([ic,val,lb,c])=>(
                 <div key={lb} style={{background:"#1E293B",borderRadius:13,padding:"14px 12px",border:"1px solid #334155",borderTop:`3px solid ${c}`,textAlign:"center"}}>
@@ -786,12 +766,10 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
                 </div>
               ))}
             </div>
-
             <div style={{background:"#1E293B",borderRadius:13,padding:18,border:"1px solid #334155",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:14,color:"#94A3B8"}}>💰 إجمالي الإيرادات</span>
               <span style={{fontSize:24,fontWeight:900,color:"#34D399"}}>{stats.revenue} د.ل</span>
             </div>
-
             <div style={{background:"#1E293B",borderRadius:13,padding:18,border:"1px solid #334155"}}>
               <h3 style={{margin:"0 0 14px",fontSize:14}}>توزيع الطلبات حسب النوع</h3>
               {SHIPMENT_TYPES.map(t=>{
@@ -810,7 +788,6 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
           </>
         )}
 
-        {/* TEAM */}
         {tab==="team"&&(
           <div style={{background:"#1E293B",borderRadius:13,padding:18,border:"1px solid #334155"}}>
             <h3 style={{margin:"0 0 16px",fontSize:14}}>👥 أداء الفريق</h3>
@@ -864,25 +841,38 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
 }
 
 // ══════════════════════════════════════════════
-//  ROOT APP
+//  ROOT APP — يكشف الصفحة حسب الرابط
 // ══════════════════════════════════════════════
 export default function App() {
-  const [page,     setPage]     = useState("login");
+  // كشف إذا الزبون جاء على /bot أو ?bot=1
+  const isCustomerView = window.location.pathname==="/bot" || new URLSearchParams(window.location.search).get("bot")==="1";
+
+  const [page,     setPage]     = useState(isCustomerView ? "bot" : "login");
   const [orders,   setOrders]   = useState([]);
   const [settings, setSettings] = useState({companyName:"وصّل", waGroupNumber:"", adminPhone:""});
   const [toast,    setToast]    = useState(null);
   const [showBot,  setShowBot]  = useState(false);
   const [dbStatus, setDbStatus] = useState("connecting");
-  const [loading,  setLoading]  = useState(true);
+  const [loading,  setLoading]  = useState(!isCustomerView);
 
   const showToast=(msg,color="#10B981")=>{
     setToast({msg,color});
-    // إشعار صوتي
-    try { const ctx=new AudioContext(); const o=ctx.createOscillator(); const g=ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.setValueAtTime(800,ctx.currentTime); o.frequency.setValueAtTime(600,ctx.currentTime+0.1); g.gain.setValueAtTime(0.3,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.3); o.start(); o.stop(ctx.currentTime+0.3); } catch {}
+    try {
+      const ctx=new AudioContext();
+      const o=ctx.createOscillator();
+      const g=ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.setValueAtTime(800,ctx.currentTime);
+      o.frequency.setValueAtTime(600,ctx.currentTime+0.1);
+      g.gain.setValueAtTime(0.3,ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.3);
+      o.start(); o.stop(ctx.currentTime+0.3);
+    } catch {}
     setTimeout(()=>setToast(null),3200);
   };
 
   useEffect(()=>{
+    if(isCustomerView) return; // الزبون لا يحتاج تحميل الطلبات
     const load=async()=>{
       const data=await db.getOrders();
       setOrders(data);
@@ -919,7 +909,7 @@ export default function App() {
       setOrders(prev=>[o,...prev]);
       showToast("⚠️ حُفظ محلياً فقط","#F59E0B");
     }
-  },[settings]);
+  },[]);
 
   const updateOrder=useCallback(async(id,k,v)=>{
     await db.updateOrder(id,{[k]:v});
@@ -927,11 +917,26 @@ export default function App() {
     showToast(k==="status"?`📦 "${v}"`:`🧑‍💼 تعيين ${v}`);
   },[]);
 
+  // واجهة الزبون المستقلة — بدون PIN
+  if(isCustomerView){
+    return(
+      <>
+        {toast&&<Toast msg={toast.msg} color={toast.color}/>}
+        <WhatsAppBot
+          onOrderCreated={addOrder}
+          settings={settings}
+          onClose={null}
+          standalone={true}
+        />
+      </>
+    );
+  }
+
   if(loading) return(
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16,fontFamily:"'Segoe UI',Tahoma,sans-serif"}}>
       <div style={{fontSize:56}}>🚀</div>
       <div style={{color:"#fff",fontSize:20,fontWeight:900}}>وصّل</div>
-      <div style={{color:"#64748B",fontSize:14}}>جاري الاتصال بقاعدة البيانات...</div>
+      <div style={{color:"#64748B",fontSize:14}}>جاري الاتصال...</div>
       <div style={{width:36,height:36,border:"3px solid #334155",borderTop:"3px solid #6366F1",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
