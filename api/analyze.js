@@ -86,7 +86,7 @@ async function getOrderStatus(orderId) {
 }
 
 // ══════════════════════════════════════════════
-//  Gemini عبر OpenRouter
+//  OpenRouter الاتصال بالذكاء الاصطناعي
 // ══════════════════════════════════════════════
 async function callGemini(messages) {
   console.log("OpenRouter Key exists:", !!OPENROUTER_KEY, OPENROUTER_KEY?.slice(0,15));
@@ -99,7 +99,7 @@ async function callGemini(messages) {
       "X-Title": "Wassal Bot",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.0-flash:free", // هذا هو التعديل الوحيد والمنقذ للطلب 🚀
+      model: "meta-llama/llama-3.3-70b-instruct:free", // التعديل الذهبي لحل مشكلة الـ ID والموديل 🚀
       messages,
       temperature: 0.2,
       max_tokens: 800,
@@ -220,7 +220,7 @@ export default async function handler(req, res) {
       { role: "user", content: message }
     ];
 
-    // ── استدعاء Gemini
+    // ── استدعاء الذكاء الاصطناعي
     const reply = await callGemini(geminiMessages);
 
     // ── تحديث تاريخ المحادثة
@@ -277,7 +277,7 @@ export default async function handler(req, res) {
         order_id: orderId,
         customer_name: draft.customer_name || null,
         client_phone: draft.phone || phone,
-        sender: draft.sender || "غير مححدد",
+        sender: draft.sender || "غير محدد",
         package_type: draft.package_type || "طرود عامة",
         details: draft.details || message,
         destination: draft.destination || "غير محدد",
