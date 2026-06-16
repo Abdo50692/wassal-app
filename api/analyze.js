@@ -15,9 +15,6 @@ const genId = () => "W-" + Date.now().toString().slice(-6);
 const nowTime = () => { const d=new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
 const todayDate = () => new Date().toISOString().split("T")[0];
 
-// ══════════════════════════════════════════════
-//  تيليغرام — إرسال رسالة للجروب
-// ══════════════════════════════════════════════
 async function sendTelegram(text) {
   try {
     await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
@@ -28,9 +25,6 @@ async function sendTelegram(text) {
   } catch(e) { console.error("Telegram error:", e); }
 }
 
-// ══════════════════════════════════════════════
-//  Supabase
-// ══════════════════════════════════════════════
 async function getConversation(phone) {
   try {
     const r = await fetch(
@@ -81,20 +75,15 @@ async function getOrderStatus(orderId) {
   } catch { return null; }
 }
 
-// ══════════════════════════════════════════════
-//  OpenRouter مع ميزة الطوارئ والهروب من الزحمة 🚀
-// ══════════════════════════════════════════════
 async function callGemini(messages) {
-  // قائمة بالموديلات المجانية القوية المرتبة حسب الأولوية
   const models = [
+    "google/gemini-2.0-flash:free",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.5-flash",
     "mistralai/mistral-7b-instruct:free"
   ];
 
   let lastError = null;
 
-  // يجرّب الموديلات واحد تلو الآخر إذا حدث ضغط (Rate Limit)
   for (const model of models) {
     try {
       console.log(`Trying model: ${model}`);
@@ -106,21 +95,15 @@ async function callGemini(messages) {
           "HTTP-Referer": "https://wassal-app.vercel.app",
           "X-Title": "Wassal Bot",
         },
-        body: JSON.stringify({
-          model: model,
-          messages,
-          temperature: 0.2,
-          max_tokens: 800,
-        }),
+        body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 800 }),
       });
 
       const data = await r.json();
-      
-      // لو السيرفر مزدحم أو مرجع خطأ، ارمي خطأ ليتنقل للموديل التالي فوراً
+
       if (!r.ok || data.error) {
         console.warn(`Model ${model} failed with status ${r.status}. Trying next...`);
         lastError = data.error?.message || `Status ${r.status}`;
-        continue; 
+        continue;
       }
 
       if (data.choices?.[0]?.message?.content) {
@@ -133,7 +116,6 @@ async function callGemini(messages) {
     }
   }
 
-  // لو كل الموديلات المجانية فشلت تماماً
   throw new Error(`All models failed. Last error: ${lastError}`);
 }
 
@@ -143,27 +125,24 @@ async function callGemini(messages) {
 const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذكي لشركة "${companyName}" للتوصيل في ليبيا (طرابلس وضواحيها، 9 صباحاً - 11 ليلاً).
 
 ## شخصيتك:
-- ترد بالعامية الليبية بأسلوب ودود ومهني
-- تفهم: خردة، رواجع، لوكيشن، فكة، حاجة، توصيلة، مندوب
-- سؤال واحد واضح في كل رسالة
-- لا تعيد السؤال عن معلومات ذكرها الزبون
+- ترد بالعامية الليبية الدافئة — يا غالي، يا عزيزي، مية مية، تمام، يزيك خير
+- أسلوبك خفيف وودود مثل صديق يساعد — مش روبوت رسمي
+- تفهم: خردة، رواجع، لوكيشن، فكة، حاجة، توصيلة، مندوب، شلة
+- لا تعيد السؤال عن معلومات ذكرها الزبون مسبقاً
+- اجمع المعلومات من رسائل متعددة إذا أرسلها الزبون منفصلة
 
 ## رسالة الترحيب (للجديد فقط — current_step=welcome):
-"👋 مرحباً بك في ${companyName}!
+"👋 أهلاً وسهلاً في ${companyName}! 🚀
 
-🚀 خدماتنا:
-📦 توصيل البضائع والطرود داخل المدينة
-🍔 توصيل من المطاعم
+خدماتنا:
+📦 توصيل البضائع والطرود
+🍔 توصيل من المطاعم  
 🚚 شحن بين المدن
 ⚡ سريع، آمن، وموثوق مية مية
 
 ⏰ 9 صباحاً - 11 ليلاً | 📍 طرابلس وضواحيها
 
-كيف نقدر نساعدك يا غالي؟
-1️⃣ تتبع طلبية
-2️⃣ توصيل بضاعة أو طرد
-3️⃣ طلب من مطعم
-4️⃣ التحدث مع الدعم"
+شن نقدر نسوولك اليوم يا غالي؟ 😊"
 
 ## المسارات:
 
@@ -172,21 +151,37 @@ const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذك
 إذا لم يذكر الرقم → اسأله: "ابعتلي رقم طلبيتك يا غالي (يبدأ بـ W-)"
 
 ### توصيل بضاعة/طرد:
-اجمع خطوة بخطوة: اسم الزبون → رقم الهاتف → نوع البضاعة → من أين → إلى أين → السعر إن ذُكر
-بعد اكتمال البيانات → أرسل ملخصاً للتأكيد
+عند أول إشارة للتوصيل، اطلب كل المعلومات في رسالة واحدة فوراً:
+"تمام يا غالي! 📦 عطني التفاصيل:
+- اسمك الكريم؟
+- رقم هاتفك؟
+- شنو البضاعة؟
+- من وين نجيبها؟
+- توصل وين بالضبط؟
+- السعر المتفق عليه؟ (اختياري)"
+
+بعد ما يرد، اجمع المعلومات من رسائله — حتى لو أرسلها منفصلة — ولا تسأل عن شيء ذكره.
+إذا ناقص شيء مهم فقط اسأل عنه في رسالة واحدة.
 
 ### طلب مطعم:
-اجمع: اسم المطعم → الطلب → عنوان التوصيل → رقم الهاتف
+عند أول إشارة لطلب مطعم، اطلب كل المعلومات دفعة واحدة:
+"حاضر يا غالي! 🍔 عطني:
+- اسم المطعم؟
+- شنو طلبك؟
+- عنوان التوصيل؟
+- رقم هاتفك؟"
 
 ### التحويل للمدير:
-في حالات: منطقة خارج التغطية، شكوى، طلب عاجل، مشكلة مالية، "أريد موظف"
-قل: "تم تحويلك لأحد المختصين، سيتواصل معك قريباً ⏳"
+في حالات: منطقة خارج التغطية، شكوى، مشكلة مالية، "أريد موظف"، "كلمني واحد"
+قل: "حاضر يا غالي، راح نحولك لأحد المختصين، يتواصل معاك قريباً ⏳"
 
 ### الطوارئ:
-كلمات (عاجل، سرعة، ضروري) → ارفع الأولوية
+كلمات (عاجل، سرعة، ضروري، يلا) → ارفع الأولوية وأخبره أنك فاهم الاستعجال
 
-## قواعد الرد:
-- ردودك قصيرة ومباشرة
+## قواعد مهمة:
+- اجمع المعلومات من رسائل متعددة — الزبون ممكن يرسل كل معلومة في رسالة لوحدها وهذا طبيعي
+- لا تطلب نفس المعلومة مرتين
+- إذا اكتملت البيانات أرسل ملخصاً للتأكيد قبل الحفظ
 - إذا اكتملت بيانات الطلب أرجع في آخر ردك:
 <<<ORDER_READY>>>
 {"order_complete":true,"customer_name":"...","phone":"...","sender":"...","package_type":"...","details":"...","destination":"...","price":0,"priority":"normal"}
@@ -230,7 +225,7 @@ export default async function handler(req, res) {
       conv.current_step = "welcome";
       conv.draft_order = {};
     } else if (minutesSince > 10 && conv.current_step !== "welcome" && Object.keys(conv.draft_order || {}).length > 0) {
-      const timeoutReply = "مرحباً! 👋 هل تريد:\n1️⃣ كمّل طلبك السابق\n2️⃣ ابدأ طلب جديد";
+      const timeoutReply = "مرحباً يا غالي! 👋 هل تريد:\n1️⃣ كمّل طلبك السابق\n2️⃣ ابدأ طلب جديد";
       return res.status(200).json({ reply: timeoutReply, order_saved: false });
     }
 
@@ -319,7 +314,9 @@ export default async function handler(req, res) {
 📝 التفاصيل: ${draft.details || "—"}
 🏠 التوصيل إلى: ${draft.destination || "غير محدد"}
 💰 التكلفة: ${draft.price || 0} د.ل
-━━━━━━━━━━━━━━━`
+🕐 الوقت: ${nowTime()}
+━━━━━━━━━━━━━━━
+للاستلام ردوا بـ: *عندي* أو *خديته* 🚗`
         );
 
         await updateConversation(phone, {
