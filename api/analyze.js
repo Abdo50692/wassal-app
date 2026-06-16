@@ -15,6 +15,9 @@ const genId = () => "W-" + Date.now().toString().slice(-6);
 const nowTime = () => { const d=new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
 const todayDate = () => new Date().toISOString().split("T")[0];
 
+// ══════════════════════════════════════════════
+//  تيليغرام — إرسال رسالة للجروب
+// ══════════════════════════════════════════════
 async function sendTelegram(text) {
   try {
     await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
@@ -25,6 +28,9 @@ async function sendTelegram(text) {
   } catch(e) { console.error("Telegram error:", e); }
 }
 
+// ══════════════════════════════════════════════
+//  Supabase
+// ══════════════════════════════════════════════
 async function getConversation(phone) {
   try {
     const r = await fetch(
@@ -75,9 +81,12 @@ async function getOrderStatus(orderId) {
   } catch { return null; }
 }
 
+// ══════════════════════════════════════════════
+//  OpenRouter — تعديل المعرفات والترتيب 🚀
+// ══════════════════════════════════════════════
 async function callGemini(messages) {
   const models = [
-    "google/gemini-2.0-flash:free",
+    "google/gemini-2.5-flash", // النسخة المستقرة والشغالة بامتياز
     "meta-llama/llama-3.3-70b-instruct:free",
     "mistralai/mistral-7b-instruct:free"
   ];
@@ -95,23 +104,21 @@ async function callGemini(messages) {
           "HTTP-Referer": "https://wassal-app.vercel.app",
           "X-Title": "Wassal Bot",
         },
-        body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 800 }),
+        body: JSON.stringify({ model, messages, temperature: 0.3, max_tokens: 800 }), // رفع الحيوية قليلاً لردود ترحيبية دافئة
       });
 
       const data = await r.json();
 
       if (!r.ok || data.error) {
-        console.warn(`Model ${model} failed with status ${r.status}. Trying next...`);
+        console.warn(`Model ${model} failed. Trying next...`);
         lastError = data.error?.message || `Status ${r.status}`;
         continue;
       }
 
       if (data.choices?.[0]?.message?.content) {
-        console.log(`Success with model: ${model}`);
         return data.choices[0].message.content;
       }
     } catch (err) {
-      console.error(`Error connecting to ${model}:`, err);
       lastError = err.message;
     }
   }
@@ -125,11 +132,10 @@ async function callGemini(messages) {
 const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذكي لشركة "${companyName}" للتوصيل في ليبيا (طرابلس وضواحيها، 9 صباحاً - 11 ليلاً).
 
 ## شخصيتك:
-- ترد بالعامية الليبية الدافئة — يا غالي، يا عزيزي، مية مية، تمام، يزيك خير
-- أسلوبك خفيف وودود مثل صديق يساعد — مش روبوت رسمي
+- ترد بالعامية الليبية الدافئة والحيوية — منور يا غالي، أهلاً وسهلاً بيك، عيوني ليك، مية مية
+- أسلوبك خفيف وودود ومرحب جداً
 - تفهم: خردة، رواجع، لوكيشن، فكة، حاجة، توصيلة، مندوب، شلة
 - لا تعيد السؤال عن معلومات ذكرها الزبون مسبقاً
-- اجمع المعلومات من رسائل متعددة إذا أرسلها الزبون منفصلة
 
 ## رسالة الترحيب (للجديد فقط — current_step=welcome):
 "👋 أهلاً وسهلاً في ${companyName}! 🚀
@@ -148,10 +154,9 @@ const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذك
 
 ### تتبع الطلبية:
 إذا ذكر رقم طلب (يبدأ بـ W-) → ابحث في قاعدة البيانات وأخبره بالحالة
-إذا لم يذكر الرقم → اسأله: "ابعتلي رقم طلبيتك يا غالي (يبدأ بـ W-)"
 
 ### توصيل بضاعة/طرد:
-عند أول إشارة للتوصيل، اطلب كل المعلومات في رسالة واحدة فوراً:
+عند أول إشارة للتوصيل أو قول "عندي طلبية"، اطلب كل المعلومات في رسالة واحدة فوراً:
 "تمام يا غالي! 📦 عطني التفاصيل:
 - اسمك الكريم؟
 - رقم هاتفك؟
@@ -159,9 +164,6 @@ const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذك
 - من وين نجيبها؟
 - توصل وين بالضبط؟
 - السعر المتفق عليه؟ (اختياري)"
-
-بعد ما يرد، اجمع المعلومات من رسائله — حتى لو أرسلها منفصلة — ولا تسأل عن شيء ذكره.
-إذا ناقص شيء مهم فقط اسأل عنه في رسالة واحدة.
 
 ### طلب مطعم:
 عند أول إشارة لطلب مطعم، اطلب كل المعلومات دفعة واحدة:
@@ -171,17 +173,7 @@ const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذك
 - عنوان التوصيل؟
 - رقم هاتفك؟"
 
-### التحويل للمدير:
-في حالات: منطقة خارج التغطية، شكوى، مشكلة مالية، "أريد موظف"، "كلمني واحد"
-قل: "حاضر يا غالي، راح نحولك لأحد المختصين، يتواصل معاك قريباً ⏳"
-
-### الطوارئ:
-كلمات (عاجل، سرعة، ضروري، يلا) → ارفع الأولوية وأخبره أنك فاهم الاستعجال
-
 ## قواعد مهمة:
-- اجمع المعلومات من رسائل متعددة — الزبون ممكن يرسل كل معلومة في رسالة لوحدها وهذا طبيعي
-- لا تطلب نفس المعلومة مرتين
-- إذا اكتملت البيانات أرسل ملخصاً للتأكيد قبل الحفظ
 - إذا اكتملت بيانات الطلب أرجع في آخر ردك:
 <<<ORDER_READY>>>
 {"order_complete":true,"customer_name":"...","phone":"...","sender":"...","package_type":"...","details":"...","destination":"...","price":0,"priority":"normal"}
@@ -195,11 +187,6 @@ const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذك
 - إذا تحويل للمدير:
 <<<ESCALATE>>>
 {"escalate":true,"reason":"...","customer_name":"...","phone":"..."}
-<<<END>>>
-
-- إذا يريد تتبع طلب:
-<<<TRACK>>>
-{"order_id":"W-XXXXXX"}
 <<<END>>>`;
 
 // ══════════════════════════════════════════════
@@ -278,8 +265,12 @@ export default async function handler(req, res) {
       } catch {}
     }
 
+    // ⚡ الأمان المزدوج: التحقق من الكود المخفي أو التحقق برمجياً من كلمة الموافقة
     const confirmMatch = reply.match(/<<<ORDER_CONFIRMED>>>([\s\S]*?)<<<END>>>/);
-    if (confirmMatch && conv.draft_order && Object.keys(conv.draft_order).length > 0) {
+    const textClean = message.trim().toLowerCase();
+    const userSaidYes = ["نعم", "تمام", "أكيد", "صح", "موافق", "ميه ميه", "مية مية", "توكل", "اوكي", "ok"].some(word => textClean.includes(word));
+
+    if ((confirmMatch || (conv.current_step === "awaiting_confirmation" && userSaidYes)) && conv.draft_order && Object.keys(conv.draft_order).length > 0) {
       const draft = conv.draft_order;
       const orderId = genId();
       const saved = await saveOrder({
@@ -314,9 +305,7 @@ export default async function handler(req, res) {
 📝 التفاصيل: ${draft.details || "—"}
 🏠 التوصيل إلى: ${draft.destination || "غير محدد"}
 💰 التكلفة: ${draft.price || 0} د.ل
-🕐 الوقت: ${nowTime()}
-━━━━━━━━━━━━━━━
-للاستلام ردوا بـ: *عندي* أو *خديته* 🚗`
+━━━━━━━━━━━━━━━`
         );
 
         await updateConversation(phone, {
@@ -337,7 +326,7 @@ export default async function handler(req, res) {
     }
 
     if (!orderSaved && !escalate && !orderMatch) {
-      await updateConversation(phone, { messages: updatedMessages, current_step: "in_progress", last_message_at: new Date().toISOString() });
+      await updateConversation(phone, { messages: updatedMessages, current_step: (conv.current_step === "awaiting_confirmation" && !userSaidYes) ? "awaiting_confirmation" : "in_progress", last_message_at: new Date().toISOString() });
     }
 
     const cleanReply = (tracked || reply)
@@ -347,7 +336,7 @@ export default async function handler(req, res) {
       .replace(/<<<TRACK>>>[\s\S]*?<<<END>>>/g, "")
       .trim();
 
-    return res.status(200).json({ reply: cleanReply || "تم استلام رسالتك ✅", order_saved: orderSaved, escalate, is_new_user: isNew, order_data: orderData });
+    return res.status(200).json({ reply: cleanReply || "تم تأكيد طلبك بنجاح! ✅", order_saved: orderSaved, escalate, is_new_user: isNew, order_data: orderData });
 
   } catch (error) {
     console.error("Bot error:", error);
