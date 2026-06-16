@@ -82,9 +82,10 @@ async function getOrderStatus(orderId) {
 }
 
 // ══════════════════════════════════════════════
-//  OpenRouter الاتصال بالذكاء الاصطناعي
+//  OpenRouter مع ميزة الطوارئ والهروب من الزحمة 🚀
 // ══════════════════════════════════════════════
 async function callGemini(messages) {
+  // قائمة بالموديلات المجانية القوية المرتبة حسب الأولوية
   const models = [
     "meta-llama/llama-3.3-70b-instruct:free",
     "google/gemini-2.5-flash",
@@ -92,8 +93,11 @@ async function callGemini(messages) {
   ];
 
   let lastError = null;
+
+  // يجرّب الموديلات واحد تلو الآخر إذا حدث ضغط (Rate Limit)
   for (const model of models) {
     try {
+      console.log(`Trying model: ${model}`);
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -102,28 +106,47 @@ async function callGemini(messages) {
           "HTTP-Referer": "https://wassal-app.vercel.app",
           "X-Title": "Wassal Bot",
         },
-        body: JSON.stringify({ model: model, messages, temperature: 0.1, max_tokens: 800 }),
+        body: JSON.stringify({
+          model: model,
+          messages,
+          temperature: 0.2,
+          max_tokens: 800,
+        }),
       });
 
       const data = await r.json();
+      
+      // لو السيرفر مزدحم أو مرجع خطأ، ارمي خطأ ليتنقل للموديل التالي فوراً
       if (!r.ok || data.error) {
+        console.warn(`Model ${model} failed with status ${r.status}. Trying next...`);
         lastError = data.error?.message || `Status ${r.status}`;
         continue; 
       }
-      if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
-    } catch (err) { lastError = err.message; }
+
+      if (data.choices?.[0]?.message?.content) {
+        console.log(`Success with model: ${model}`);
+        return data.choices[0].message.content;
+      }
+    } catch (err) {
+      console.error(`Error connecting to ${model}:`, err);
+      lastError = err.message;
+    }
   }
+
+  // لو كل الموديلات المجانية فشلت تماماً
   throw new Error(`All models failed. Last error: ${lastError}`);
 }
 
 // ══════════════════════════════════════════════
-//  SYSTEM PROMPT (تم تشديد شروط التأكيد هنا ⚙️)
+//  SYSTEM PROMPT
 // ══════════════════════════════════════════════
 const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذكي لشركة "${companyName}" للتوصيل في ليبيا (طرابلس وضواحيها، 9 صباحاً - 11 ليلاً).
 
 ## شخصيتك:
 - ترد بالعامية الليبية بأسلوب ودود ومهني
+- تفهم: خردة، رواجع، لوكيشن، فكة، حاجة، توصيلة، مندوب
 - سؤال واحد واضح في كل رسالة
+- لا تعيد السؤال عن معلومات ذكرها الزبون
 
 ## رسالة الترحيب (للجديد فقط — current_step=welcome):
 "👋 مرحباً بك في ${companyName}!
@@ -142,23 +165,44 @@ const getSystemPrompt = (companyName) => `أنت بوت خدمة عملاء ذك
 3️⃣ طلب من مطعم
 4️⃣ التحدث مع الدعم"
 
-## قواعد الرد والملخصات (هام جداً):
-1. عندما يكتمل جمع البيانات، اعرض الملخص للزبون فوراً واسأله للتأكيد. وعند عرض الملخص أضف النص المخفي التالي في نهاية ردك لتهيئة النظام:
+## المسارات:
+
+### تتبع الطلبية:
+إذا ذكر رقم طلب (يبدأ بـ W-) → ابحث في قاعدة البيانات وأخبره بالحالة
+إذا لم يذكر الرقم → اسأله: "ابعتلي رقم طلبيتك يا غالي (يبدأ بـ W-)"
+
+### توصيل بضاعة/طرد:
+اجمع خطوة بخطوة: اسم الزبون → رقم الهاتف → نوع البضاعة → من أين → إلى أين → السعر إن ذُكر
+بعد اكتمال البيانات → أرسل ملخصاً للتأكيد
+
+### طلب مطعم:
+اجمع: اسم المطعم → الطلب → عنوان التوصيل → رقم الهاتف
+
+### التحويل للمدير:
+في حالات: منطقة خارج التغطية، شكوى، طلب عاجل، مشكلة مالية، "أريد موظف"
+قل: "تم تحويلك لأحد المختصين، سيتواصل معك قريباً ⏳"
+
+### الطوارئ:
+كلمات (عاجل، سرعة، ضروري) → ارفع الأولوية
+
+## قواعد الرد:
+- ردودك قصيرة ومباشرة
+- إذا اكتملت بيانات الطلب أرجع في آخر ردك:
 <<<ORDER_READY>>>
-{"order_complete":true,"customer_name":"...","phone":"...","sender":"...","package_type":"...","details":"...","destination":"...","price":80,"priority":"normal"}
+{"order_complete":true,"customer_name":"...","phone":"...","sender":"...","package_type":"...","details":"...","destination":"...","price":0,"priority":"normal"}
 <<<END>>>
 
-2. إجباري وصارم: عندما يوافق الزبون على الملخص ويقول (نعم، تمام، صح، وافق، مية مية، توكل على الله)، يجب عليك إلزامياً وبدون أي خطأ إدراج النص التالي في نهاية ردك التأكيدي لكي يتمكن السيرفر من حفظ البيانات:
+- إذا تأكد الزبون على الملخص أرجع:
 <<<ORDER_CONFIRMED>>>
 {"confirmed":true}
 <<<END>>>
 
-3. إذا طلب الزبون تحويل للمدير:
+- إذا تحويل للمدير:
 <<<ESCALATE>>>
 {"escalate":true,"reason":"...","customer_name":"...","phone":"..."}
 <<<END>>>
 
-4. إذا كان يريد تتبع طلب:
+- إذا يريد تتبع طلب:
 <<<TRACK>>>
 {"order_id":"W-XXXXXX"}
 <<<END>>>`;
@@ -212,7 +256,6 @@ export default async function handler(req, res) {
     let orderData = null;
     let tracked = null;
 
-    // ── فحص التتبع
     const trackMatch = reply.match(/<<<TRACK>>>([\s\S]*?)<<<END>>>/);
     if (trackMatch) {
       try {
@@ -221,11 +264,12 @@ export default async function handler(req, res) {
         if (order) {
           const statusEmoji = { "جديد":"🆕", "قيد التوصيل":"🚴", "قريب من التسليم":"🏃", "مكتمل":"✅", "متأخر":"⏳", "ملغي":"❌" };
           tracked = `📦 طلبيتك #${order.order_id}\n${statusEmoji[order.status]||"📦"} الحالة: *${order.status}*\n${order.driver_name ? `🧑‍💼 المندوب: ${order.driver_name}` : ""}`;
-        } else { tracked = "❌ ما لقيت طلبية بهذا الرقم. تأكد من الرقم يا غالي."; }
+        } else {
+          tracked = "❌ ما لقيت طلبية بهذا الرقم. تأكد من الرقم يا غالي.";
+        }
       } catch {}
     }
 
-    // ── فحص جهوزية الملخص
     const orderMatch = reply.match(/<<<ORDER_READY>>>([\s\S]*?)<<<END>>>/);
     if (orderMatch) {
       try {
@@ -239,24 +283,20 @@ export default async function handler(req, res) {
       } catch {}
     }
 
-    // ⚡ الأمان الفائق: فحص الكود المخفي للتأكيد، أو التحقق برمجياً لو كانت الخطوة الحالية هي الانتظار والزبون قال "نعم"
     const confirmMatch = reply.match(/<<<ORDER_CONFIRMED>>>([\s\S]*?)<<<END>>>/);
-    const textClean = message.trim().toLowerCase();
-    const userSaidYes = ["نعم", "تمام", "أكيد", "صح", "موافق", "ميه ميه", "مية مية", "توكل", "اوكي", "ok"].some(word => textClean.includes(word));
-    
-    if ((confirmMatch || (conv.current_step === "awaiting_confirmation" && userSaidYes)) && conv.draft_order && Object.keys(conv.draft_order).length > 0) {
+    if (confirmMatch && conv.draft_order && Object.keys(conv.draft_order).length > 0) {
       const draft = conv.draft_order;
       const orderId = genId();
       const saved = await saveOrder({
         order_id: orderId,
-        customer_name: draft.customer_name || "عبدالرحمن",
+        customer_name: draft.customer_name || null,
         client_phone: draft.phone || phone,
         sender: draft.sender || "غير محدد",
-        package_type: draft.package_type || "طرود",
-        details: draft.details || "توصيل طرد ملابس",
+        package_type: draft.package_type || "طرود عامة",
+        details: draft.details || message,
         destination: draft.destination || "غير محدد",
-        price: draft.price || 80,
-        status: "جديد",
+        price: draft.price || 0,
+        status: draft.priority === "urgent" ? "عاجل" : "جديد",
         driver_name: null,
         source: "bot",
         date: todayDate(),
@@ -268,23 +308,20 @@ export default async function handler(req, res) {
         orderSaved = true;
         orderData = {...draft, id: orderId};
 
-        // إرسال لجروب التيليغرام فوراً 🚀
         await sendTelegram(
-`🚀 *${companyName}* — طلب جديد مؤكد!
+`🚀 *${companyName}* — طلب جديد!
 ━━━━━━━━━━━━━━━
 🆔 رقم الطلب: \`${orderId}\`
-👤 الزبون: ${draft.customer_name || "عبدالرحمن"}
-📞 الهاتف: ${draft.phone || phone}
-📦 المرسل/المحل: ${draft.sender || "دروب طرابلس"}
-🎁 النوع: ${draft.package_type || "طرد ملابس"}
-🏠 التوصيل إلى: ${draft.destination || "حي دمشق"}
-💰 التكلفة: ${draft.price || 80} د.ل
-🕐 الوقت: ${nowTime()}
-━━━━━━━━━━━━━━━
-للاستلام ردوا بـ: *عندي* 🚗`
+👤 الزبون: ${draft.customer_name || "غير محدد"}
+📞 الهاتف: ${draft.phone || "غير محدد"}
+📦 المرسل/المحل: ${draft.sender || "غير محدد"}
+🎁 النوع: ${draft.package_type || "غير محدد"}
+📝 التفاصيل: ${draft.details || "—"}
+🏠 التوصيل إلى: ${draft.destination || "غير محدد"}
+💰 التكلفة: ${draft.price || 0} د.ل
+━━━━━━━━━━━━━━━`
         );
 
-        // تصفير المحادثة للبدء من جديد
         await updateConversation(phone, {
           messages: [], current_step: "welcome",
           draft_order: {}, last_message_at: new Date().toISOString()
@@ -303,7 +340,7 @@ export default async function handler(req, res) {
     }
 
     if (!orderSaved && !escalate && !orderMatch) {
-      await updateConversation(phone, { messages: updatedMessages, current_step: (conv.current_step === "awaiting_confirmation" && !userSaidYes) ? "awaiting_confirmation" : "in_progress", last_message_at: new Date().toISOString() });
+      await updateConversation(phone, { messages: updatedMessages, current_step: "in_progress", last_message_at: new Date().toISOString() });
     }
 
     const cleanReply = (tracked || reply)
@@ -313,7 +350,7 @@ export default async function handler(req, res) {
       .replace(/<<<TRACK>>>[\s\S]*?<<<END>>>/g, "")
       .trim();
 
-    return res.status(200).json({ reply: cleanReply || "تم تأكيد طلبك بنجاح! ✅", order_saved: orderSaved, escalate, is_new_user: isNew, order_data: orderData });
+    return res.status(200).json({ reply: cleanReply || "تم استلام رسالتك ✅", order_saved: orderSaved, escalate, is_new_user: isNew, order_data: orderData });
 
   } catch (error) {
     console.error("Bot error:", error);
