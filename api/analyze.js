@@ -23,11 +23,7 @@ async function sendTelegram(text) {
     await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({
-        chat_id: TG_CHAT_ID,
-        text,
-        parse_mode: "Markdown"
-      })
+      body: JSON.stringify({ chat_id: TG_CHAT_ID, text, parse_mode: "Markdown" })
     });
   } catch(e) { console.error("Telegram error:", e); }
 }
@@ -86,29 +82,59 @@ async function getOrderStatus(orderId) {
 }
 
 // ══════════════════════════════════════════════
-//  OpenRouter الاتصال بالذكاء الاصطناعي
+//  OpenRouter مع ميزة الطوارئ والهروب من الزحمة 🚀
 // ══════════════════════════════════════════════
 async function callGemini(messages) {
-  console.log("OpenRouter Key exists:", !!OPENROUTER_KEY, OPENROUTER_KEY?.slice(0,15));
-  const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPENROUTER_KEY}`,
-      "HTTP-Referer": "https://wassal-app.vercel.app",
-      "X-Title": "Wassal Bot",
-    },
-    body: JSON.stringify({
-      model: "meta-llama/llama-3.3-70b-instruct:free", // التعديل الذهبي لحل مشكلة الـ ID والموديل 🚀
-      messages,
-      temperature: 0.2,
-      max_tokens: 800,
-    }),
-  });
-  const data = await r.json();
-  console.log("OpenRouter status:", r.status, JSON.stringify(data).slice(0,200));
-  if(!r.ok) throw new Error(`OpenRouter ${r.status}: ${JSON.stringify(data)}`);
-  return data.choices?.[0]?.message?.content || "";
+  // قائمة بالموديلات المجانية القوية المرتبة حسب الأولوية
+  const models = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.5-flash",
+    "mistralai/mistral-7b-instruct:free"
+  ];
+
+  let lastError = null;
+
+  // يجرّب الموديلات واحد تلو الآخر إذا حدث ضغط (Rate Limit)
+  for (const model of models) {
+    try {
+      console.log(`Trying model: ${model}`);
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OPENROUTER_KEY}`,
+          "HTTP-Referer": "https://wassal-app.vercel.app",
+          "X-Title": "Wassal Bot",
+        },
+        body: JSON.stringify({
+          model: model,
+          messages,
+          temperature: 0.2,
+          max_tokens: 800,
+        }),
+      });
+
+      const data = await r.json();
+      
+      // لو السيرفر مزدحم أو مرجع خطأ، ارمي خطأ ليتنقل للموديل التالي فوراً
+      if (!r.ok || data.error) {
+        console.warn(`Model ${model} failed with status ${r.status}. Trying next...`);
+        lastError = data.error?.message || `Status ${r.status}`;
+        continue; 
+      }
+
+      if (data.choices?.[0]?.message?.content) {
+        console.log(`Success with model: ${model}`);
+        return data.choices[0].message.content;
+      }
+    } catch (err) {
+      console.error(`Error connecting to ${model}:`, err);
+      lastError = err.message;
+    }
+  }
+
+  // لو كل الموديلات المجانية فشلت تماماً
+  throw new Error(`All models failed. Last error: ${lastError}`);
 }
 
 // ══════════════════════════════════════════════
@@ -195,10 +221,7 @@ export default async function handler(req, res) {
   if (!message) return res.status(400).json({ error: "No message" });
 
   try {
-    // ── جلب المحادثة
     let conv = await getConversation(phone);
-
-    // ── فحص timeout
     const lastMsg = new Date(conv.last_message_at || Date.now());
     const minutesSince = (Date.now() - lastMsg) / 60000;
 
@@ -220,10 +243,8 @@ export default async function handler(req, res) {
       { role: "user", content: message }
     ];
 
-    // ── استدعاء الذكاء الاصطناعي
     const reply = await callGemini(geminiMessages);
 
-    // ── تحديث تاريخ المحادثة
     const updatedMessages = [
       ...history,
       { role: "user", content: message },
@@ -235,17 +256,13 @@ export default async function handler(req, res) {
     let orderData = null;
     let tracked = null;
 
-    // ── فحص التتبع
     const trackMatch = reply.match(/<<<TRACK>>>([\s\S]*?)<<<END>>>/);
     if (trackMatch) {
       try {
         const trackData = JSON.parse(trackMatch[1].trim());
         const order = await getOrderStatus(trackData.order_id);
         if (order) {
-          const statusEmoji = {
-            "جديد":"🆕", "قيد التوصيل":"🚴", "قريب من التسليم":"🏃",
-            "مكتمل":"✅", "متأخر":"⏳", "ملغي":"❌"
-          };
+          const statusEmoji = { "جديد":"🆕", "قيد التوصيل":"🚴", "قريب من التسليم":"🏃", "مكتمل":"✅", "متأخر":"⏳", "ملغي":"❌" };
           tracked = `📦 طلبيتك #${order.order_id}\n${statusEmoji[order.status]||"📦"} الحالة: *${order.status}*\n${order.driver_name ? `🧑‍💼 المندوب: ${order.driver_name}` : ""}`;
         } else {
           tracked = "❌ ما لقيت طلبية بهذا الرقم. تأكد من الرقم يا غالي.";
@@ -253,12 +270,10 @@ export default async function handler(req, res) {
       } catch {}
     }
 
-    // ── فحص اكتمال الطلب
     const orderMatch = reply.match(/<<<ORDER_READY>>>([\s\S]*?)<<<END>>>/);
     if (orderMatch) {
       try {
         orderData = JSON.parse(orderMatch[1].trim());
-        // احفظ في draft للتأكيد
         await updateConversation(phone, {
           messages: updatedMessages,
           current_step: "awaiting_confirmation",
@@ -268,7 +283,6 @@ export default async function handler(req, res) {
       } catch {}
     }
 
-    // ── فحص التأكيد
     const confirmMatch = reply.match(/<<<ORDER_CONFIRMED>>>([\s\S]*?)<<<END>>>/);
     if (confirmMatch && conv.draft_order && Object.keys(conv.draft_order).length > 0) {
       const draft = conv.draft_order;
@@ -294,7 +308,6 @@ export default async function handler(req, res) {
         orderSaved = true;
         orderData = {...draft, id: orderId};
 
-        // ✈️ إرسال تيليغرام تلقائي
         await sendTelegram(
 `🚀 *${companyName}* — طلب جديد!
 ━━━━━━━━━━━━━━━
@@ -306,12 +319,9 @@ export default async function handler(req, res) {
 📝 التفاصيل: ${draft.details || "—"}
 🏠 التوصيل إلى: ${draft.destination || "غير محدد"}
 💰 التكلفة: ${draft.price || 0} د.ل
-🕐 الوقت: ${nowTime()}
-━━━━━━━━━━━━━━━
-للاستلام ردوا بـ: *عندي* أو *خديته* 🚗`
+━━━━━━━━━━━━━━━`
         );
 
-        // إعادة تعيين المحادثة
         await updateConversation(phone, {
           messages: [], current_step: "welcome",
           draft_order: {}, last_message_at: new Date().toISOString()
@@ -319,38 +329,20 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── فحص التحويل للمدير
     const escalateMatch = reply.match(/<<<ESCALATE>>>([\s\S]*?)<<<END>>>/);
     if (escalateMatch) {
       try {
         const escData = JSON.parse(escalateMatch[1].trim());
         escalate = true;
-
-        // إرسال تيليغرام للتحويل
-        await sendTelegram(
-`🚨 *تحويل للإدارة!*
-👤 الزبون: ${escData.customer_name || "غير محدد"}
-📞 الرقم: ${escData.phone || phone}
-📝 السبب: ${escData.reason || "يحتاج تدخل بشري"}`
-        );
-
-        await updateConversation(phone, {
-          messages: updatedMessages, current_step: "escalated",
-          last_message_at: new Date().toISOString()
-        });
+        await sendTelegram(`🚨 *تحويل للإدارة!*\n👤 الزبون: ${escData.customer_name || "غير محدد"}\n📞 الرقم: ${escData.phone || phone}\n📝 السبب: ${escData.reason || "يحتاج تدخل بشري"}`);
+        await updateConversation(phone, { messages: updatedMessages, current_step: "escalated", last_message_at: new Date().toISOString() });
       } catch {}
     }
 
-    // ── تحديث المحادثة إذا لم يكتمل طلب
     if (!orderSaved && !escalate && !orderMatch) {
-      await updateConversation(phone, {
-        messages: updatedMessages,
-        current_step: "in_progress",
-        last_message_at: new Date().toISOString()
-      });
+      await updateConversation(phone, { messages: updatedMessages, current_step: "in_progress", last_message_at: new Date().toISOString() });
     }
 
-    // ── تنظيف الرد
     const cleanReply = (tracked || reply)
       .replace(/<<<ORDER_READY>>>[\s\S]*?<<<END>>>/g, "")
       .replace(/<<<ORDER_CONFIRMED>>>[\s\S]*?<<<END>>>/g, "")
@@ -358,19 +350,10 @@ export default async function handler(req, res) {
       .replace(/<<<TRACK>>>[\s\S]*?<<<END>>>/g, "")
       .trim();
 
-    return res.status(200).json({
-      reply: cleanReply || "تم استلام رسالتك ✅",
-      order_saved: orderSaved,
-      escalate,
-      is_new_user: isNew,
-      order_data: orderData,
-    });
+    return res.status(200).json({ reply: cleanReply || "تم استلام رسالتك ✅", order_saved: orderSaved, escalate, is_new_user: isNew, order_data: orderData });
 
   } catch (error) {
     console.error("Bot error:", error);
-    return res.status(200).json({
-      reply: "تم استلام رسالتك ✅ سيتواصل معك فريقنا قريباً.",
-      order_saved: false,
-    });
+    return res.status(200).json({ reply: "تم استلام رسالتك ✅ سيتواصل معك فريقنا قريباً.", order_saved: false });
   }
 }
