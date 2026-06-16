@@ -89,6 +89,7 @@ async function getOrderStatus(orderId) {
 //  Gemini عبر OpenRouter
 // ══════════════════════════════════════════════
 async function callGemini(messages) {
+  console.log("OpenRouter Key exists:", !!OPENROUTER_KEY, OPENROUTER_KEY?.slice(0,15));
   const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -105,6 +106,8 @@ async function callGemini(messages) {
     }),
   });
   const data = await r.json();
+  console.log("OpenRouter status:", r.status, JSON.stringify(data).slice(0,200));
+  if(!r.ok) throw new Error(`OpenRouter ${r.status}: ${JSON.stringify(data)}`);
   return data.choices?.[0]?.message?.content || "";
 }
 
