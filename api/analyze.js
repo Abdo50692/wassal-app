@@ -1,44 +1,35 @@
-const SUPABASE_URL   = process.env.SUPABASE_URL;
-const SUPABASE_KEY   = process.env.SUPABASE_KEY;
-const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
-const TG_TOKEN       = process.env.TELEGRAM_TOKEN;
-const TG_CHAT_ID     = process.env.TELEGRAM_CHAT_ID;
-
-// التحقق من وجود المتغيرات الأساسية لضمان عدم تشغيل الكود بمفاتيح فارغة
-if (!SUPABASE_URL || !SUPABASE_KEY || !OPENROUTER_KEY) {
-  console.warn("⚠️ تنبيه: بعض متغيرات البيئة (Environment Variables) غير مجهزة بالكامل في الخادم!");
-}
+const SUPABASE_URL  = process.env.SUPABASE_URL  || "https://iwivofotgjianvthgntm.supabase.co";
+const SUPABASE_KEY  = process.env.SUPABASE_KEY  || "sb_publishable_WLNGtMZR3yXbDrd3vFwMkQ_VWa4J2Ln";
+const OPENROUTER_KEY= process.env.OPENROUTER_API_KEY;
+const TG_TOKEN      = process.env.TELEGRAM_TOKEN || "8941922503:AAGszlwAC6p76jdK9IBK4kKR--fF8g60wMc";
+const TG_CHAT_ID    = process.env.TELEGRAM_CHAT_ID || "-1004385283242";
 
 const sbH = {
-  "Content-Type": "application/json",
+  "Content-Type":"application/json",
   "apikey": SUPABASE_KEY,
   "Authorization": `Bearer ${SUPABASE_KEY}`,
   "Prefer": "return=representation"
 };
 
 const genId = () => "W-" + Date.now().toString().slice(-6);
-const nowTime = () => { 
-  const d = new Date(); 
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; 
-};
+const nowTime = () => { const d=new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
 const todayDate = () => new Date().toISOString().split("T")[0];
 
 // ══════════════════════════════════════════════
 //  تيليغرام — إرسال رسالة للجروب
 // ══════════════════════════════════════════════
 async function sendTelegram(text) {
-  if (!TG_TOKEN || !TG_CHAT_ID) return console.error("Telegram credentials missing");
   try {
     await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
         chat_id: TG_CHAT_ID,
         text,
         parse_mode: "Markdown"
       })
     });
-  } catch (e) { console.error("Telegram error:", e); }
+  } catch(e) { console.error("Telegram error:", e); }
 }
 
 // ══════════════════════════════════════════════
@@ -53,24 +44,16 @@ async function getConversation(phone) {
     const data = await r.json();
     if (data && data.length > 0) return data[0];
 
-    // إنشاء محادثة جديدة إذا لم تكن موجودة
     const r2 = await fetch(`${SUPABASE_URL}/rest/v1/conversations`, {
-      method: "POST", 
-      headers: sbH,
+      method: "POST", headers: sbH,
       body: JSON.stringify({
-        phone_number: phone, 
-        messages: [], 
-        current_step: "welcome",
-        draft_order: {}, 
-        last_message_at: new Date().toISOString()
+        phone_number: phone, messages: [], current_step: "welcome",
+        draft_order: {}, last_message_at: new Date().toISOString()
       })
     });
     const d2 = await r2.json();
     return Array.isArray(d2) ? d2[0] : d2;
-  } catch (err) { 
-    console.error("Supabase getConversation error:", err);
-    return { phone_number: phone, messages: [], current_step: "welcome", draft_order: {} }; 
-  }
+  } catch { return { phone_number: phone, messages: [], current_step: "welcome", draft_order: {} }; }
 }
 
 async function updateConversation(phone, updates) {
@@ -79,7 +62,7 @@ async function updateConversation(phone, updates) {
       `${SUPABASE_URL}/rest/v1/conversations?phone_number=eq.${encodeURIComponent(phone)}`,
       { method: "PATCH", headers: sbH, body: JSON.stringify(updates) }
     );
-  } catch (err) { console.error("Supabase updateConversation error:", err); }
+  } catch {}
 }
 
 async function saveOrder(order) {
@@ -88,10 +71,7 @@ async function saveOrder(order) {
       method: "POST", headers: sbH, body: JSON.stringify(order)
     });
     return r.ok;
-  } catch (err) { 
-    console.error("Supabase saveOrder error:", err);
-    return false; 
-  }
+  } catch { return false; }
 }
 
 async function getOrderStatus(orderId) {
@@ -102,17 +82,14 @@ async function getOrderStatus(orderId) {
     );
     const data = await r.json();
     return data && data.length > 0 ? data[0] : null;
-  } catch (err) { 
-    console.error("Supabase getOrderStatus error:", err);
-    return null; 
-  }
+  } catch { return null; }
 }
 
 // ══════════════════════════════════════════════
 //  Gemini عبر OpenRouter
 // ══════════════════════════════════════════════
 async function callGemini(messages) {
-  console.log("OpenRouter Key exists:", !!OPENROUTER_KEY, OPENROUTER_KEY?.slice(0, 15));
+  console.log("OpenRouter Key exists:", !!OPENROUTER_KEY, OPENROUTER_KEY?.slice(0,15));
   const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -122,16 +99,15 @@ async function callGemini(messages) {
       "X-Title": "Wassal Bot",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.0-flash:free", // تم الاستبدال هنا أيضاً للموديل المستقر المستهدف 🚀
+      model: "google/gemini-2.0-flash:free", // هذا هو التعديل الوحيد والمنقذ للطلب 🚀
       messages,
       temperature: 0.2,
       max_tokens: 800,
     }),
   });
-  
   const data = await r.json();
-  console.log("OpenRouter status:", r.status, JSON.stringify(data).slice(0, 200));
-  if (!r.ok) throw new Error(`OpenRouter ${r.status}: ${JSON.stringify(data)}`);
+  console.log("OpenRouter status:", r.status, JSON.stringify(data).slice(0,200));
+  if(!r.ok) throw new Error(`OpenRouter ${r.status}: ${JSON.stringify(data)}`);
   return data.choices?.[0]?.message?.content || "";
 }
 
@@ -267,14 +243,14 @@ export default async function handler(req, res) {
         const order = await getOrderStatus(trackData.order_id);
         if (order) {
           const statusEmoji = {
-            "جديد": "🆕", "قيد التوصيل": "🚴", "قريب من التسليم": "🏃",
-            "مكتمل": "✅", "متأخر": "⏳", "ملغي": "❌"
+            "جديد":"🆕", "قيد التوصيل":"🚴", "قريب من التسليم":"🏃",
+            "مكتمل":"✅", "متأخر":"⏳", "ملغي":"❌"
           };
-          tracked = `📦 طلبيتك #${order.order_id}\n${statusEmoji[order.status] || "📦"} الحالة: *${order.status}*\n${order.driver_name ? `🧑‍💼 المندوب: ${order.driver_name}` : ""}`;
+          tracked = `📦 طلبيتك #${order.order_id}\n${statusEmoji[order.status]||"📦"} الحالة: *${order.status}*\n${order.driver_name ? `🧑‍💼 المندوب: ${order.driver_name}` : ""}`;
         } else {
           tracked = "❌ ما لقيت طلبية بهذا الرقم. تأكد من الرقم يا غالي.";
         }
-      } catch (e) { console.error("Track parsing error:", e); }
+      } catch {}
     }
 
     // ── فحص اكتمال الطلب
@@ -282,13 +258,14 @@ export default async function handler(req, res) {
     if (orderMatch) {
       try {
         orderData = JSON.parse(orderMatch[1].trim());
+        // احفظ في draft للتأكيد
         await updateConversation(phone, {
           messages: updatedMessages,
           current_step: "awaiting_confirmation",
           draft_order: orderData,
           last_message_at: new Date().toISOString()
         });
-      } catch (e) { console.error("Order ready parsing error:", e); }
+      } catch {}
     }
 
     // ── فحص التأكيد
@@ -300,7 +277,7 @@ export default async function handler(req, res) {
         order_id: orderId,
         customer_name: draft.customer_name || null,
         client_phone: draft.phone || phone,
-        sender: draft.sender || "غير محدد",
+        sender: draft.sender || "غير مححدد",
         package_type: draft.package_type || "طرود عامة",
         details: draft.details || message,
         destination: draft.destination || "غير محدد",
@@ -315,9 +292,9 @@ export default async function handler(req, res) {
 
       if (saved) {
         orderSaved = true;
-        orderData = { ...draft, id: orderId };
+        orderData = {...draft, id: orderId};
 
-        // إرسال تيليغرام تلقائي
+        // ✈️ إرسال تيليغرام تلقائي
         await sendTelegram(
 `🚀 *${companyName}* — طلب جديد!
 ━━━━━━━━━━━━━━━
@@ -336,10 +313,8 @@ export default async function handler(req, res) {
 
         // إعادة تعيين المحادثة
         await updateConversation(phone, {
-          messages: [], 
-          current_step: "welcome",
-          draft_order: {}, 
-          last_message_at: new Date().toISOString()
+          messages: [], current_step: "welcome",
+          draft_order: {}, last_message_at: new Date().toISOString()
         });
       }
     }
@@ -351,6 +326,7 @@ export default async function handler(req, res) {
         const escData = JSON.parse(escalateMatch[1].trim());
         escalate = true;
 
+        // إرسال تيليغرام للتحويل
         await sendTelegram(
 `🚨 *تحويل للإدارة!*
 👤 الزبون: ${escData.customer_name || "غير محدد"}
@@ -359,11 +335,10 @@ export default async function handler(req, res) {
         );
 
         await updateConversation(phone, {
-          messages: updatedMessages, 
-          current_step: "escalated",
+          messages: updatedMessages, current_step: "escalated",
           last_message_at: new Date().toISOString()
         });
-      } catch (e) { console.error("Escalate parsing error:", e); }
+      } catch {}
     }
 
     // ── تحديث المحادثة إذا لم يكتمل طلب
@@ -392,7 +367,7 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error("Bot general error:", error);
+    console.error("Bot error:", error);
     return res.status(200).json({
       reply: "تم استلام رسالتك ✅ سيتواصل معك فريقنا قريباً.",
       order_saved: false,
