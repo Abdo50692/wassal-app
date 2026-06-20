@@ -118,6 +118,34 @@ const db = {
 };
 
 // ══════════════════════════════════════════════
+//  SETTINGS DB — إعدادات محفوظة في Supabase
+// ══════════════════════════════════════════════
+const settingsDB = {
+  load: async () => {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/settings?select=*`, {headers:sbH});
+      const data = await r.json();
+      if(!Array.isArray(data)) return null;
+      const s = {};
+      data.forEach(row => { s[row.key] = row.value; });
+      return s;
+    } catch { return null; }
+  },
+  saveAll: async (settings) => {
+    try {
+      const rows = Object.entries(settings).map(([key,value])=>({
+        key, value: String(value||""), updated_at: new Date().toISOString()
+      }));
+      await fetch(`${SUPABASE_URL}/rest/v1/settings`, {
+        method:"POST",
+        headers:{...sbH, "Prefer":"resolution=merge-duplicates"},
+        body: JSON.stringify(rows)
+      });
+    } catch {}
+  }
+};
+
+// ══════════════════════════════════════════════
 //  BOT API
 // ══════════════════════════════════════════════
 async function sendMessage(message, phone, companyName) {
@@ -642,7 +670,7 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
                 </div>
               ))}
             </div>
-            <button onClick={()=>{setSettings(localS);setShowSettings(false);}}
+            <button onClick={async()=>{setSettings(localS);await settingsDB.saveAll(localS);setShowSettings(false);}}
               style={{width:"100%",background:"linear-gradient(135deg,#6366F1,#818CF8)",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
               💾 حفظ
             </button>
@@ -874,6 +902,12 @@ export default function App() {
   useEffect(()=>{
     if(isCustomerView) return; // الزبون لا يحتاج تحميل الطلبات
     const load=async()=>{
+      // تحميل الإعدادات من Supabase
+      const savedSettings = await settingsDB.load();
+      if(savedSettings && Object.keys(savedSettings).length > 0){
+        setSettings(prev=>({...prev, ...savedSettings}));
+      }
+      // تحميل الطلبات
       const data=await db.getOrders();
       setOrders(data);
       setDbStatus(data!==null?"ok":"error");
