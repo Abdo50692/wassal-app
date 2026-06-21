@@ -136,6 +136,16 @@ const settingsDB = {
       if(!Array.isArray(data)) return null;
       const s = {};
       data.forEach(row => { s[row.key] = row.value; });
+      // تحميل PIN المحفوظ
+      if(s.__pin) window.__WASSAL_PIN = s.__pin;
+      // تحميل الفريق المحفوظ
+      if(s.__team) {
+        try {
+          const team = JSON.parse(s.__team);
+          TEAM.length = 0;
+          team.forEach(m => TEAM.push(m));
+        } catch {}
+      }
       return s;
     } catch { return null; }
   },
@@ -148,6 +158,15 @@ const settingsDB = {
         method:"POST",
         headers:{...sbH, "Prefer":"resolution=merge-duplicates"},
         body: JSON.stringify(rows)
+      });
+    } catch {}
+  },
+  saveKey: async (key, value) => {
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/settings`, {
+        method:"POST",
+        headers:{...sbH, "Prefer":"resolution=merge-duplicates"},
+        body: JSON.stringify({key, value: String(value), updated_at: new Date().toISOString()})
       });
     } catch {}
   }
@@ -642,7 +661,7 @@ function AdminLogin({onLogin}) {
   const [pin,setPin]=useState("");
   const [shake,setShake]=useState(false);
   const [tries,setTries]=useState(0);
-  const tryLogin=()=>{if(pin===ADMIN_PIN){onLogin();}else{setShake(true);setPin("");setTries(t=>t+1);setTimeout(()=>setShake(false),500);}};
+  const tryLogin=()=>{const currentPin=window.__WASSAL_PIN||ADMIN_PIN;if(pin===currentPin){onLogin();}else{setShake(true);setPin("");setTries(t=>t+1);setTimeout(()=>setShake(false),500);}};
   const press=v=>{if(v==="⌫")setPin(p=>p.slice(0,-1));else if(v==="✓")tryLogin();else if(pin.length<4)setPin(p=>p+v);};
   useEffect(()=>{if(pin.length===4)tryLogin();},[pin]);
 
@@ -727,6 +746,10 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
   const [showSettings,setShowSettings]=useState(false);
   const [localS,setLocalS]=useState({...settings});
   const [localComm,setLocalComm]=useState(driverComm);
+  const [localTeam,setLocalTeam]=useState([...TEAM]);
+  const [newPin,setNewPin]=useState("");
+  const [confirmPin,setConfirmPin]=useState("");
+  const [pinMsg,setPinMsg]=useState("📝 أدخل الرمز الجديد");
   const [exporting,setExporting]=useState(false);
   const [darkMode,setDarkMode]=useState(true);
 
@@ -742,6 +765,13 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
     const mf=filter==="الكل"||o.status===filter||(filter==="يحتاج مراجعة"&&o.needs_review);
     const ms=!search||(o.customer_name||"").includes(search)||o.id.includes(search)||(o.clientPhone||"").includes(search)||o.sender.includes(search)||(o.destination||"").includes(search);
     return mf&&ms;
+  }).sort((a,b)=>{
+    // العاجل أولاً، ثم يحتاج مراجعة، ثم الأحدث
+    const priority = {عاجل:3,"يحتاج مراجعة":2,جديد:1};
+    const pa = priority[a.status]||0;
+    const pb = priority[b.status]||0;
+    if(pa!==pb) return pb-pa;
+    return b.id.localeCompare(a.id);
   });
 
   const stats={
@@ -785,7 +815,7 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
               <button onClick={()=>setShowSettings(false)} style={{background:border,border:"none",borderRadius:9,width:32,height:32,cursor:"pointer",color:muted,fontSize:16}}>✕</button>
             </div>
 
-            {[["اسم الشركة","companyName","وصّل"],["رقم جروب الواتساب","waGroupNumber","218912345678"],["رقم واتساب الإدارة","adminPhone","218911111111"]].map(([lb,k,ph])=>(
+            {[["اسم الشركة","companyName","وصّل"],["رقم جروب الواتساب","waGroupNumber","218912345678"],["رقم واتساب الإدارة","adminPhone","218911111111"],["تيليغرام Bot Token","tgToken","123456:ABC..."],["تيليغرام Chat ID","tgChatId","-1001234567890"]].map(([lb,k,ph])=>(
               <div key={k} style={{marginBottom:14}}>
                 <label style={{display:"block",fontSize:12,color:muted,marginBottom:5,fontWeight:600}}>{lb}</label>
                 <input placeholder={ph} value={localS[k]||""} onChange={e=>setLocalS(l=>({...l,[k]:e.target.value}))}
@@ -815,20 +845,72 @@ function Dashboard({orders,onAdd,onUpdate,onLogout,settings,setSettings,onOpenBo
             {/* جدول الأسعار */}
             <PricingTable pricing={pricing} setPricing={setPricing}/>
 
-            <div style={{background:bg,borderRadius:10,padding:12,marginBottom:14,marginTop:14,border:`1px solid ${border}`}}>
-              <div style={{fontSize:12,color:muted,marginBottom:8}}>👥 الفريق</div>
-              {TEAM.map((m,i)=>(
-                <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,fontSize:13}}>
-                  <span style={{color:"#6366F1"}}>🧑‍💼</span>
-                  <span style={{color:text,fontWeight:600}}>{m.name}</span>
-                  <span style={{color:muted,fontSize:11}}>{m.role}</span>
+            {/* إدارة الفريق */}
+            <div style={{background:bg,borderRadius:12,padding:14,marginBottom:14,marginTop:14,border:`1px solid ${border}`}}>
+              <div style={{fontSize:12,color:muted,marginBottom:12,fontWeight:700}}>👥 إدارة الفريق</div>
+              {localTeam.map((m,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <input value={m.name} onChange={e=>setLocalTeam(t=>t.map((r,idx)=>idx===i?{...r,name:e.target.value}:r))}
+                    style={{flex:1,borderRadius:8,border:`1px solid ${border}`,padding:"7px 10px",fontSize:13,fontFamily:"inherit",background:card,color:text,outline:"none"}}
+                    placeholder="الاسم"/>
+                  <input value={m.phone} onChange={e=>setLocalTeam(t=>t.map((r,idx)=>idx===i?{...r,phone:e.target.value}:r))}
+                    style={{flex:1,borderRadius:8,border:`1px solid ${border}`,padding:"7px 10px",fontSize:12,fontFamily:"inherit",background:card,color:text,outline:"none"}}
+                    placeholder="218XXXXXXXXX"/>
+                  <select value={m.role} onChange={e=>setLocalTeam(t=>t.map((r,idx)=>idx===i?{...r,role:e.target.value}:r))}
+                    style={{borderRadius:8,border:`1px solid ${border}`,padding:"7px 8px",fontSize:12,fontFamily:"inherit",background:card,color:text,outline:"none"}}>
+                    <option>مدير</option><option>مندوب</option><option>محاسب</option>
+                  </select>
+                  <button onClick={()=>setLocalTeam(t=>t.filter((_,idx)=>idx!==i))}
+                    style={{background:"transparent",border:"none",color:"#EF4444",fontSize:16,cursor:"pointer"}}>🗑️</button>
                 </div>
               ))}
+              <button onClick={()=>setLocalTeam(t=>[...t,{name:"",phone:"",role:"مندوب"}])}
+                style={{width:"100%",background:"transparent",border:`1.5px dashed ${border}`,borderRadius:9,padding:"8px",color:muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>
+                + إضافة عضو
+              </button>
             </div>
 
-            <button onClick={async()=>{setSettings(localS);setDriverComm(localComm);await settingsDB.saveAll(localS);setShowSettings(false);}}
+            {/* تغيير رمز الدخول */}
+            <div style={{background:bg,borderRadius:12,padding:14,marginBottom:14,border:`1px solid ${border}`}}>
+              <div style={{fontSize:12,color:muted,marginBottom:12,fontWeight:700}}>🔐 تغيير رمز الدخول</div>
+              <div style={{display:"flex",gap:8,marginBottom:8}}>
+                <input type="password" maxLength={4} value={newPin} onChange={e=>setNewPin(e.target.value.replace(/\D/g,""))}
+                  placeholder="الرمز الجديد (4 أرقام)"
+                  style={{flex:1,borderRadius:8,border:`1px solid ${border}`,padding:"8px 12px",fontSize:14,fontFamily:"inherit",background:card,color:text,outline:"none",letterSpacing:4}}/>
+                <input type="password" maxLength={4} value={confirmPin} onChange={e=>setConfirmPin(e.target.value.replace(/\D/g,""))}
+                  placeholder="تأكيد الرمز"
+                  style={{flex:1,borderRadius:8,border:`1px solid ${border}`,padding:"8px 12px",fontSize:14,fontFamily:"inherit",background:card,color:text,outline:"none",letterSpacing:4}}/>
+              </div>
+              <button onClick={()=>{
+                if(newPin.length!==4){setPinMsg("❌ الرمز يجب أن يكون 4 أرقام");return;}
+                if(newPin!==confirmPin){setPinMsg("❌ الرمزان غير متطابقين");return;}
+                window.__WASSAL_PIN = newPin;
+                setNewPin(""); setConfirmPin("");
+                setPinMsg("✅ تم تغيير الرمز بنجاح!");
+                setTimeout(()=>setPinMsg("📝 أدخل الرمز الجديد"),3000);
+              }} style={{width:"100%",background:"#334155",color:"#E2E8F0",border:"none",borderRadius:9,padding:"9px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                🔐 تغيير الرمز
+              </button>
+              {pinMsg&&<div style={{fontSize:12,marginTop:8,color:pinMsg.includes("✅")?"#10B981":pinMsg.includes("❌")?"#EF4444":muted,textAlign:"center"}}>{pinMsg}</div>}
+            </div>
+
+            <button onClick={async()=>{
+              setSettings(localS);
+              setDriverComm(localComm);
+              // حفظ الفريق
+              TEAM.length=0;
+              localTeam.filter(m=>m.name).forEach(m=>TEAM.push(m));
+              // حفظ كل شيء في Supabase
+              await settingsDB.saveAll({
+                ...localS,
+                driverComm: String(localComm),
+                __team: JSON.stringify(localTeam.filter(m=>m.name)),
+                ...(window.__WASSAL_PIN ? {__pin: window.__WASSAL_PIN} : {})
+              });
+              setShowSettings(false);
+            }}
               style={{width:"100%",background:"linear-gradient(135deg,#6366F1,#818CF8)",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
-              💾 حفظ
+              💾 حفظ الكل
             </button>
           </div>
         </div>
@@ -1065,7 +1147,7 @@ export default function App() {
 
   const [page,       setPage]       = useState(isCustomerView ? "bot" : "login");
   const [orders,     setOrders]     = useState([]);
-  const [settings,   setSettings]   = useState({companyName:"وصّل", waGroupNumber:"", adminPhone:""});
+  const [settings,   setSettings]   = useState({companyName:"وصّل", waGroupNumber:"", adminPhone:"", tgToken:"", tgChatId:""});
   const [driverComm, setDriverComm] = useState(0.7);
   const [pricing,    setPricing]    = useState(DEFAULT_PRICING);
   const [toast,      setToast]      = useState(null);
@@ -1076,11 +1158,22 @@ export default function App() {
   const showToast=(msg,color="#10B981")=>{
     setToast({msg,color});
     try {
-      const ctx=new AudioContext(); const o=ctx.createOscillator(); const g=ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.frequency.setValueAtTime(800,ctx.currentTime); o.frequency.setValueAtTime(600,ctx.currentTime+0.1);
-      g.gain.setValueAtTime(0.3,ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.3);
-      o.start(); o.stop(ctx.currentTime+0.3);
+      const ctx=new (window.AudioContext||window.webkitAudioContext)();
+      const playTone=(freq,start,dur,vol=0.3)=>{
+        const o=ctx.createOscillator(); const g=ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.setValueAtTime(freq,ctx.currentTime+start);
+        g.gain.setValueAtTime(vol,ctx.currentTime+start);
+        g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+start+dur);
+        o.start(ctx.currentTime+start); o.stop(ctx.currentTime+start+dur);
+      };
+      if(color==="#DC2626"){
+        // صوت طلب عاجل — 3 نبضات سريعة
+        playTone(880,0,0.12,0.4); playTone(880,0.15,0.12,0.4); playTone(1100,0.30,0.2,0.5);
+      } else {
+        // صوت طلب عادي — نغمة صاعدة
+        playTone(600,0,0.1,0.25); playTone(800,0.12,0.15,0.3);
+      }
     } catch {}
     setTimeout(()=>setToast(null),3200);
   };
@@ -1132,9 +1225,30 @@ export default function App() {
 
   const updateOrder=useCallback(async(id,k,v)=>{
     await db.updateOrder(id,{[k]:v});
-    setOrders(prev=>prev.map(o=>o.id===id?{...o,[k]:v}:o));
+    setOrders(prev=>{
+      const updated = prev.map(o=>o.id===id?{...o,[k]:v}:o);
+      // إشعار تيليغرام عند تعيين مندوب أو تغيير حالة مهمة
+      const order = updated.find(o=>o.id===id);
+      if(order && (k==="driver" || k==="status")){
+        const msg = k==="driver"
+          ? `🧑‍💼 *تعيين مندوب*
+الطلب: \`${id}\`
+المندوب: *${v}*
+📦 ${order.package_type||""}
+🏠 ${order.destination||""}`
+          : `📦 *تحديث حالة الطلب*
+الطلب: \`${id}\`
+الحالة الجديدة: *${v}*
+👤 ${order.customer_name||order.sender||""}`;
+        fetch(`https://api.telegram.org/bot${settings.tgToken||""}/sendMessage`,{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({chat_id:settings.tgChatId||"", text:msg, parse_mode:"Markdown"})
+        }).catch(()=>{});
+      }
+      return updated;
+    });
     showToast(k==="status"?`📦 "${v}"`:`🧑‍💼 تعيين ${v}`);
-  },[]);
+  },[settings]);
 
   if(isCustomerView) return(
     <>
@@ -1168,4 +1282,3 @@ export default function App() {
     </>
   );
 }
-
